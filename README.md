@@ -17,6 +17,10 @@ We use pretrained models from [https://github.com/openai/guided-diffusion](https
 
 We use 1,000 images from the ImageNet validation set for comparison with other methods. The list of images is taken from [https://github.com/XingangPan/deep-generative-prior/](https://github.com/XingangPan/deep-generative-prior/)
 
+
+**DATA and Checkpoint**
+Download [here](https://drive.google.com/drive/folders/1cSCTaBtnL7OIKXT4SVME88Vtk4uDd_u4)!
+
 The models and datasets are placed in the `exp/` folder as follows:
 ```bash
 <exp> # a folder named by the argument `--exp` given to main.py
