@@ -93,7 +93,7 @@ class ImageDataset(data.Dataset):
     def __getitem__(self, idx):
         filename = self.root_dir + '/' + self.metas[idx][0]
         cls = self.metas[idx][1]
-        img = default_loader(filename)
+        img = default_loader(filename[:-5])
 
         # transform
         if self.transform is not None:

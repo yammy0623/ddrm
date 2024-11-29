@@ -9,7 +9,7 @@ import torch
 import numpy as np
 import torch.utils.tensorboard as tb
 
-from runners.diffusion import Diffusion
+from runners.diffusion_new import Diffusion
 
 torch.set_printoptions(sci_mode=False)
 
@@ -60,24 +60,12 @@ def parse_args_and_config():
     parser.add_argument(
         "--timesteps", type=int, default=1000, help="number of steps involved"
     )
-    parser.add_argument(
-        "--deg", type=str, required=True, help="Degradation"
-    )
-    parser.add_argument(
-        "--sigma_0", type=float, required=True, help="Sigma_0"
-    )
-    parser.add_argument(
-        "--eta", type=float, default=0.85, help="Eta"
-    )
-    parser.add_argument(
-        "--etaB", type=float, default=1, help="Eta_b (before)"
-    )
-    parser.add_argument(
-        '--subset_start', type=int, default=-1
-    )
-    parser.add_argument(
-        '--subset_end', type=int, default=-1
-    )
+    parser.add_argument("--deg", type=str, required=True, help="Degradation")
+    parser.add_argument("--sigma_0", type=float, required=True, help="Sigma_0")
+    parser.add_argument("--eta", type=float, default=0.85, help="Eta")
+    parser.add_argument("--etaB", type=float, default=1, help="Eta_b (before)")
+    parser.add_argument("--subset_start", type=int, default=-1)
+    parser.add_argument("--subset_end", type=int, default=-1)
 
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)
@@ -103,9 +91,7 @@ def parse_args_and_config():
     logger.setLevel(level)
 
     os.makedirs(os.path.join(args.exp, "image_samples"), exist_ok=True)
-    args.image_folder = os.path.join(
-        args.exp, "image_samples", args.image_folder
-    )
+    args.image_folder = os.path.join(args.exp, "image_samples", args.image_folder)
     if not os.path.exists(args.image_folder):
         os.makedirs(args.image_folder)
     else:
