@@ -464,7 +464,7 @@ class Diffusion(object):
                 )
                 # print("sample_image", len(x))
                 # print(np.size(x))
-                
+
 
             x = [inverse_data_transform(config, y) for y in x]
 

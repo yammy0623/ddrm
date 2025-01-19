@@ -49,18 +49,18 @@ def efficient_generalized_steps(x, config, seq, model, b, H_funcs, y_0, sigma_0,
             t = (torch.ones(n) * i).to(x.device)
         
             next_t = (torch.ones(n) * j).to(x.device)
-            print(f"t: {t}, next_t: {next_t}")
+            # print(f"t: {t}, next_t: {next_t}")
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
             xt = xs[-1].to('cuda')
             save_img(xt,  config, i, "xt")
-            print("cls", cls_fn)
-            print("class", classes)
+            # print("cls", cls_fn)
+            # print("class", classes)
             if cls_fn == None:
                 et = model(xt, t)
-                print("et", et)
-                print("t", t)
-                print("xt", xt)
+                # print("et", et)
+                # print("t", t)
+                # print("xt", xt)
             else:
                 et = model(xt, t, classes)
                 et = et[:, :3]
@@ -70,7 +70,7 @@ def efficient_generalized_steps(x, config, seq, model, b, H_funcs, y_0, sigma_0,
                 et = et[:, :3]
             
             x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
-            print(f"et: {et}, at: {at}")
+            # print(f"et: {et}, at: {at}")
 
             save_img(x0_t,  config, i, "x0_t")
 
