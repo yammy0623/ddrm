@@ -80,6 +80,7 @@ def parse_args_and_config():
     )
 
     parser.add_argument("--input_root", type=str, default="/tmp2/ICML2025", help="The root folder of input images")
+    parser.add_argument("--step_nums", type=int, default=5)
     
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)
@@ -110,23 +111,30 @@ def parse_args_and_config():
     )
     if not os.path.exists(args.image_folder):
         os.makedirs(args.image_folder)
-    else:
-        overwrite = False
-        if args.ni:
-            overwrite = True
-        else:
-            response = input(
-                f"Image folder {args.image_folder} already exists. Overwrite? (Y/N)"
-            )
-            if response.upper() == "Y":
-                overwrite = True
 
-        if overwrite:
-            shutil.rmtree(args.image_folder)
-            os.makedirs(args.image_folder)
-        else:
-            print("Output image folder exists. Program halted.")
-            sys.exit(0)
+    if not os.path.exists(os.path.join(args.image_folder, "result")):
+        print(os.path.join(args.image_folder, "result"))
+        os.makedirs(os.path.join(args.image_folder, "result"))
+        os.makedirs(os.path.join(args.image_folder, "y0"))
+        os.makedirs(os.path.join(args.image_folder, "orig"))
+        
+    # else:
+    #     overwrite = False
+    #     if args.ni:
+    #         overwrite = True
+    #     else:
+    #         response = input(
+    #             f"Image folder {args.image_folder} already exists. Overwrite? (Y/N)"
+    #         )
+    #         if response.upper() == "Y":
+    #             overwrite = True
+
+    #     if overwrite:
+    #         shutil.rmtree(args.image_folder)
+    #         os.makedirs(args.image_folder)
+    #     else:
+    #         print("Output image folder exists. Program halted.")
+    #         sys.exit(0)
 
     # add device
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")

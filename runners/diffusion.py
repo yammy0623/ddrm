@@ -14,6 +14,7 @@ from functions.ckpt_util import get_ckpt_path, download
 from functions.denoising import efficient_generalized_steps
 
 import torchvision.utils as tvu
+from skimage.metrics import structural_similarity
 
 from guided_diffusion.unet import UNetModel
 from guided_diffusion.script_util import (
@@ -260,6 +261,10 @@ class Diffusion(object):
                 loaded = np.load("inp_masks/lorem3.npy")
                 mask = torch.from_numpy(loaded).to(self.device).reshape(-1)
                 missing_r = torch.nonzero(mask == 0).long().reshape(-1) * 3
+            elif deg == "inpainting": # from DDNM
+                loaded = np.load("inp_masks/mask.npy")
+                mask = torch.from_numpy(loaded).to(self.device).reshape(-1)
+                missing_r = torch.nonzero(mask == 0).long().reshape(-1) * 3
             else:
                 missing_r = (
                     torch.randperm(config.data.image_size**2)[
@@ -392,6 +397,7 @@ class Diffusion(object):
         idx_init = args.subset_start
         idx_so_far = args.subset_start
         avg_psnr = 0.0
+        avg_ssim = 0.0
         pbar = tqdm.tqdm(val_loader)
         for x_orig, classes in pbar:
             x_orig = x_orig.to(self.device)
@@ -406,6 +412,12 @@ class Diffusion(object):
                 self.config.data.image_size,
                 self.config.data.image_size,
             )
+
+            # Use origin degraded y as input for start T skipping
+            # x = pinv_y_0
+
+            # print(y_0)
+
 
             if deg[:6] == "deblur":
                 pinv_y_0 = y_0.view(
@@ -429,89 +441,127 @@ class Diffusion(object):
                     - 1
                 )
 
-            for i in range(len(pinv_y_0)):
-                tvu.save_image(
-                    inverse_data_transform(config, pinv_y_0[i]),
-                    os.path.join(self.args.image_folder, f"y0_{idx_so_far + i}.png"),
-                )
-                tvu.save_image(
-                    inverse_data_transform(config, x_orig[i]),
-                    os.path.join(self.args.image_folder, f"orig_{idx_so_far + i}.png"),
-                )
+            # for i in range(len(pinv_y_0)):
+            #     tvu.save_image(
+            #         inverse_data_transform(config, pinv_y_0[i]),
+            #         os.path.join(os.path.join(self.args.image_folder, "y0"), f"y0_{idx_so_far + i}.png"),
+            #     )
+            #     tvu.save_image(
+            #         inverse_data_transform(config, x_orig[i]),
+            #         os.path.join(os.path.join(self.args.image_folder, "orig"), f"orig_{idx_so_far + i}.png"),
+            #     )
 
+
+            x = pinv_y_0
             ##Begin DDIM
-            x = torch.randn(
-                y_0.shape[0],
-                config.data.channels,
-                config.data.image_size,
-                config.data.image_size,
-                device=self.device,
-            )
+            # x = torch.randn(
+            #     y_0.shape[0],
+            #     config.data.channels,
+            #     config.data.image_size,
+            #     config.data.image_size,
+            #     device=self.device,
+            # )
 
             # NOTE: This means that we are producing each predicted x0, not x_{t-1} at timestep t.
             with torch.no_grad():
                 # xs
-                x, _ = self.sample_image(
+                start_T = 500
+                skip = start_T // self.args.step_nums
+                seq = list(range(0,  start_T, skip))
+                # print(seq)
+
+                x, x0_preds = efficient_generalized_steps(
                     x,
                     config,
+                    seq,
                     model,
+                    self.betas,
                     H_funcs,
                     y_0,
                     sigma_0,
-                    last=False,
+                    etaB=self.args.etaB,
+                    etaA=self.args.eta,
+                    etaC=self.args.eta,
                     cls_fn=cls_fn,
                     classes=classes,
                 )
-                # print("sample_image", len(x))
-                # print(np.size(x))
 
-
-            x = [inverse_data_transform(config, y) for y in x]
+            x = [inverse_data_transform(config, y) for y in x0_preds]
 
             for i in [-1]:  # range(len(x)):
                 for j in range(x[i].size(0)):
-                    tvu.save_image(
-                        x[i][j],
-                        os.path.join(
-                            self.args.image_folder, f"{idx_so_far + j}_{i}.png"
-                        ),
-                    )
+                    # tvu.save_image(
+                    #     x[i][j],
+                    #     os.path.join(
+                    #          os.path.join(self.args.image_folder, "result"), f"{idx_so_far + j}_{i}.png"
+                    #     ),
+                    # )
                     if i == len(x) - 1 or i == -1:
                         orig = inverse_data_transform(config, x_orig[j])
+                        # save_img(orig, config, i, "out_orig")
+                        # save_img(x[i][j], config, i, "out_x")
                         mse = torch.mean((x[i][j].to(self.device) - orig) ** 2)
                         psnr = 10 * torch.log10(1 / mse)
+                        ssim = structural_similarity(
+                            x[0][j].cpu().numpy(),
+                            orig.squeeze(0).cpu().numpy(),
+                            win_size=21,
+                            channel_axis=0,
+                            data_range=1.0
+                        )
+                        # print(psnr)
+                        # print(ssim)
                         avg_psnr += psnr
+                        avg_ssim += ssim
 
             idx_so_far += y_0.shape[0]
 
-            pbar.set_description("PSNR: %.2f" % (avg_psnr / (idx_so_far - idx_init)))
+            # pbar.set_description("PSNR: %.2f" % (avg_psnr / (idx_so_far - idx_init)))
+            pbar.set_description("PSNR: %.2f, SSIM: %.2f" % (avg_psnr / (idx_so_far - idx_init), avg_ssim / (idx_so_far - idx_init)))
 
+    
         avg_psnr = avg_psnr / (idx_so_far - idx_init)
+        avg_ssim = avg_ssim / (idx_so_far - idx_init)
+        print()
         print("Total Average PSNR: %.2f" % avg_psnr)
+        print("Total Average SSIM: %.2f" % avg_ssim)
         print("Number of samples: %d" % (idx_so_far - idx_init))
 
-    def sample_image(
-        self, x, config, model, H_funcs, y_0, sigma_0, last=True, cls_fn=None, classes=None
-    ):
-        skip = self.num_timesteps // self.args.timesteps
-        seq = range(0, self.num_timesteps, skip)
 
-        x = efficient_generalized_steps(
-            x,
-            config,
-            seq,
-            model,
-            self.betas,
-            H_funcs,
-            y_0,
-            sigma_0,
-            etaB=self.args.etaB,
-            etaA=self.args.eta,
-            etaC=self.args.eta,
-            cls_fn=cls_fn,
-            classes=classes,
-        )
-        # print(x)
-        if last:
-            x = x[0][-1]
-        return x
+        with open("output.txt", "a") as f:
+            f.write(f"Exp: {self.args.doc}_{self.args.deg}, steps: {self.args.step_nums}, PSNR: {avg_psnr:.3f}, SSIM: {avg_ssim:.3f}, Number of samples: {idx_so_far - idx_init}\n")
+        
+    
+    # def sample_image(
+    #     self, x, config, model, H_funcs, y_0, sigma_0, last=True, cls_fn=None, classes=None
+    # ):
+    #     # skip = self.num_timesteps // self.args.timesteps
+    #     start_T = 1000
+    #     skip = start_T // self.args.step_nums
+    #     seq = range(0,  self.args.step_nums, skip)
+    #     print(seq)
+
+    #     x = efficient_generalized_steps(
+    #         x,
+    #         config,
+    #         seq,
+    #         model,
+    #         self.betas,
+    #         H_funcs,
+    #         y_0,
+    #         sigma_0,
+    #         etaB=self.args.etaB,
+    #         etaA=self.args.eta,
+    #         etaC=self.args.eta,
+    #         cls_fn=cls_fn,
+    #         classes=classes,
+    #     )
+    #     # print(x)
+    #     if last:
+    #         x = x[0][-1]
+    #     return x
+def save_img(x, config, idx_so_far, name):
+    # x = inverse_data_transform(config, x)
+    tvu.save_image(
+        x, os.path.join("image", f"{name}_{0}.png")
+    )

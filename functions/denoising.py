@@ -38,24 +38,44 @@ def efficient_generalized_steps(x, config, seq, model, b, H_funcs, y_0, sigma_0,
         init_y = init_y / largest_sigmas
         
         #setup iteration variables
-        x = H_funcs.V(init_y.view(x.size(0), -1)).view(*x.size()) # x = Vy
+        # x = H_funcs.V(init_y.view(x.size(0), -1)).view(*x.size()) # x = Vy
         n = x.size(0)
         seq_next = [-1] + list(seq[:-1])
         x0_preds = []
-        xs = [x] # wwith noise
-
+        # xs = [x] # wwith noise
+        xs = []
+        init = True
         #iterate over the timesteps
         for i, j in tqdm(zip(reversed(seq), reversed(seq_next))):
             t = (torch.ones(n) * i).to(x.device)
-        
             next_t = (torch.ones(n) * j).to(x.device)
             # print(f"t: {t}, next_t: {next_t}")
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
+            
+            if init:
+                init = False
+                xt = torch.randn(
+                    y_0.shape[0],
+                    config.data.channels,
+                    config.data.image_size,
+                    config.data.image_size,
+                    device=x.device,
+                )
+                if cls_fn == None:
+                    et = model(xt, t)
+                else:
+                    et = model(xt, t, classes)
+                    et = et[:, :3]
+                    et = et - (1 - at).sqrt()[0,0,0,0] * cls_fn(x,t,classes)
+                if et.size(1) == 6:
+                    et = et[:, :3]  
+                xt = get_noisy_x(x, t, b, x.to('cuda'), H_funcs, Sigma, U_t_y, singulars, sigma_0, etaB, etaA, etaC, et, Sig_inv_U_t_y, x.device)
+                xs.append(xt)
+
             xt = xs[-1].to('cuda')
-            save_img(xt,  config, i, "xt")
-            # print("cls", cls_fn)
-            # print("class", classes)
+            
+
             if cls_fn == None:
                 et = model(xt, t)
                 # print("et", et)
@@ -67,24 +87,25 @@ def efficient_generalized_steps(x, config, seq, model, b, H_funcs, y_0, sigma_0,
                 et = et - (1 - at).sqrt()[0,0,0,0] * cls_fn(x,t,classes)
             
             if et.size(1) == 6:
-                et = et[:, :3]
-            
-            x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
+                et = et[:, :3]  
+
             # print(f"et: {et}, at: {at}")
 
-            save_img(x0_t,  config, i, "x0_t")
+            x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
+
+            # save_img(x0_t,  config, i, "x0_t")
 
             #variational inference conditioned on y
-            sigma = (1 - at).sqrt()[0, 0, 0, 0] / at.sqrt()[0, 0, 0, 0]
+            # sigma = (1 - at).sqrt()[0, 0, 0, 0] / at.sqrt()[0, 0, 0, 0]
             sigma_next = (1 - at_next).sqrt()[0, 0, 0, 0] / at_next.sqrt()[0, 0, 0, 0]
-            xt_mod = xt / at.sqrt()[0, 0, 0, 0]
-            V_t_x = H_funcs.Vt(xt_mod) 
-            SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
+            # xt_mod = xt / at.sqrt()[0, 0, 0, 0]
+            # V_t_x = H_funcs.Vt(xt_mod) 
+            # SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
             V_t_x0 = H_funcs.Vt(x0_t)
             SVt_x0 = (V_t_x0 * Sigma)[:, :U_t_y.shape[1]]
 
-            save_img(V_t_x0,  config, i, "V_t_x0")
-            save_img(SVt_x0,  config, i, "SVt_x0")
+            # save_img(V_t_x0,  config, i, "V_t_x0")
+            # save_img(SVt_x0,  config, i, "SVt_x0")
 
             falses = torch.zeros(V_t_x0.shape[1] - singulars.shape[0], dtype=torch.bool, device=xt.device)
             cond_before_lite = singulars * sigma_next > sigma_0
@@ -115,21 +136,73 @@ def efficient_generalized_steps(x, config, seq, model, b, H_funcs, y_0, sigma_0,
             xt_mod_next = H_funcs.V(Vt_xt_mod_next)
 
             
-            save_img(xt_mod_next, config, i, "xt_mod_next")
+            # save_img(xt_mod_next, config, i, "xt_mod_next")
 
             xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*x.shape)
 
-            save_img(xt_next, config, i, "xt_next")
+            # save_img(xt_next, config, i, "xt_next")
 
             x0_preds.append(x0_t.to('cpu'))
             xs.append(xt_next.to('cpu'))
 
+    # return xs, x0_preds
+    return [xs[-1]], [x0_preds[-1]] # the last one is the final denoising result (xt = x0_t)
 
-    return xs, x0_preds
+def get_noisy_x(x, next_t, b, x0_t, H_funcs, Sigma, U_t_y, singulars, sigma_0, etaB, etaA, etaC, et, Sig_inv_U_t_y, device):
+    at_next = compute_alpha(b, next_t.long())
+    #variational inference conditioned on y
+    sigma_next = (1 - at_next).sqrt()[0, 0, 0, 0] / at_next.sqrt()[0, 0, 0, 0]
+    # V_t_x = H_funcs.Vt(xt_mod) 
+    # SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
+    V_t_x0 = H_funcs.Vt(x0_t)
+    SVt_x0 = (V_t_x0 * Sigma)[:, :U_t_y.shape[1]]
+
+    # save_img(V_t_x0,  config, i, "V_t_x0")
+    # save_img(SVt_x0,  config, i, "SVt_x0")
+
+    falses = torch.zeros(V_t_x0.shape[1] - singulars.shape[0], dtype=torch.bool, device=device)
+    cond_before_lite = singulars * sigma_next > sigma_0
+    cond_after_lite = singulars * sigma_next < sigma_0
+    cond_before = torch.hstack((cond_before_lite, falses))
+    cond_after = torch.hstack((cond_after_lite, falses))
+
+    std_nextC = sigma_next * etaC
+    sigma_tilde_nextC = torch.sqrt(sigma_next ** 2 - std_nextC ** 2)
+
+    std_nextA = sigma_next * etaA
+    sigma_tilde_nextA = torch.sqrt(sigma_next**2 - std_nextA**2)
+    
+    diff_sigma_t_nextB = torch.sqrt(sigma_next ** 2 - sigma_0 ** 2 / singulars[cond_before_lite] ** 2 * (etaB ** 2))
+
+    #missing pixels
+    Vt_xt_mod_next = V_t_x0 + sigma_tilde_nextC * H_funcs.Vt(et) + std_nextC * torch.randn_like(V_t_x0)
+
+    #less noisy than y (after)
+    Vt_xt_mod_next[:, cond_after] = \
+        V_t_x0[:, cond_after] + sigma_tilde_nextA * ((U_t_y - SVt_x0) / sigma_0)[:, cond_after_lite] + std_nextA * torch.randn_like(V_t_x0[:, cond_after])
+    
+    #noisier than y (before)
+    Vt_xt_mod_next[:, cond_before] = \
+        (Sig_inv_U_t_y[:, cond_before_lite] * etaB + (1 - etaB) * V_t_x0[:, cond_before] + diff_sigma_t_nextB * torch.randn_like(U_t_y)[:, cond_before_lite])
+
+    #aggregate all 3 cases and give next prediction
+    xt_mod_next = H_funcs.V(Vt_xt_mod_next)
+
+    
+    # save_img(xt_mod_next, config, i, "xt_mod_next")
+
+    xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*x.shape)
+
+    return xt_next
 
 
+
+
+
+        
 def save_img(x, config, idx_so_far, name):
     x = inverse_data_transform(config, x)
     tvu.save_image(
         x, os.path.join("image", f"{name}_{0}.png")
     )
+
