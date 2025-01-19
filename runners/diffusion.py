@@ -406,6 +406,7 @@ class Diffusion(object):
                 self.config.data.image_size,
                 self.config.data.image_size,
             )
+
             if deg[:6] == "deblur":
                 pinv_y_0 = y_0.view(
                     y_0.shape[0],
@@ -449,8 +450,10 @@ class Diffusion(object):
 
             # NOTE: This means that we are producing each predicted x0, not x_{t-1} at timestep t.
             with torch.no_grad():
+                # xs
                 x, _ = self.sample_image(
                     x,
+                    config,
                     model,
                     H_funcs,
                     y_0,
@@ -459,6 +462,9 @@ class Diffusion(object):
                     cls_fn=cls_fn,
                     classes=classes,
                 )
+                # print("sample_image", len(x))
+                # print(np.size(x))
+
 
             x = [inverse_data_transform(config, y) for y in x]
 
@@ -485,13 +491,14 @@ class Diffusion(object):
         print("Number of samples: %d" % (idx_so_far - idx_init))
 
     def sample_image(
-        self, x, model, H_funcs, y_0, sigma_0, last=True, cls_fn=None, classes=None
+        self, x, config, model, H_funcs, y_0, sigma_0, last=True, cls_fn=None, classes=None
     ):
         skip = self.num_timesteps // self.args.timesteps
         seq = range(0, self.num_timesteps, skip)
 
         x = efficient_generalized_steps(
             x,
+            config,
             seq,
             model,
             self.betas,
@@ -504,6 +511,7 @@ class Diffusion(object):
             cls_fn=cls_fn,
             classes=classes,
         )
+        # print(x)
         if last:
             x = x[0][-1]
         return x

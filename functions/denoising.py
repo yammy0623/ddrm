@@ -2,13 +2,15 @@ import torch
 from tqdm import tqdm
 import torchvision.utils as tvu
 import os
+from datasets import inverse_data_transform
 
 def compute_alpha(beta, t):
     beta = torch.cat([torch.zeros(1).to(beta.device), beta], dim=0)
     a = (1 - beta).cumprod(dim=0).index_select(0, t + 1).view(-1, 1, 1, 1)
     return a
 
-def efficient_generalized_steps(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, etaA, etaC, cls_fn=None, classes=None):
+def efficient_generalized_steps(x, config, seq, model, b, H_funcs, y_0, sigma_0, etaB, etaA, etaC, cls_fn=None, classes=None):
+    # print(model)
     with torch.no_grad():
         #setup vectors used in the algorithm
         singulars = H_funcs.singulars()
@@ -36,21 +38,29 @@ def efficient_generalized_steps(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, e
         init_y = init_y / largest_sigmas
         
         #setup iteration variables
-        x = H_funcs.V(init_y.view(x.size(0), -1)).view(*x.size())
+        x = H_funcs.V(init_y.view(x.size(0), -1)).view(*x.size()) # x = Vy
         n = x.size(0)
         seq_next = [-1] + list(seq[:-1])
         x0_preds = []
-        xs = [x]
+        xs = [x] # wwith noise
 
         #iterate over the timesteps
         for i, j in tqdm(zip(reversed(seq), reversed(seq_next))):
             t = (torch.ones(n) * i).to(x.device)
+        
             next_t = (torch.ones(n) * j).to(x.device)
+            # print(f"t: {t}, next_t: {next_t}")
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
             xt = xs[-1].to('cuda')
+            save_img(xt,  config, i, "xt")
+            # print("cls", cls_fn)
+            # print("class", classes)
             if cls_fn == None:
                 et = model(xt, t)
+                # print("et", et)
+                # print("t", t)
+                # print("xt", xt)
             else:
                 et = model(xt, t, classes)
                 et = et[:, :3]
@@ -60,15 +70,21 @@ def efficient_generalized_steps(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, e
                 et = et[:, :3]
             
             x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
+            # print(f"et: {et}, at: {at}")
+
+            save_img(x0_t,  config, i, "x0_t")
 
             #variational inference conditioned on y
             sigma = (1 - at).sqrt()[0, 0, 0, 0] / at.sqrt()[0, 0, 0, 0]
             sigma_next = (1 - at_next).sqrt()[0, 0, 0, 0] / at_next.sqrt()[0, 0, 0, 0]
             xt_mod = xt / at.sqrt()[0, 0, 0, 0]
-            V_t_x = H_funcs.Vt(xt_mod)
+            V_t_x = H_funcs.Vt(xt_mod) 
             SVt_x = (V_t_x * Sigma)[:, :U_t_y.shape[1]]
             V_t_x0 = H_funcs.Vt(x0_t)
             SVt_x0 = (V_t_x0 * Sigma)[:, :U_t_y.shape[1]]
+
+            save_img(V_t_x0,  config, i, "V_t_x0")
+            save_img(SVt_x0,  config, i, "SVt_x0")
 
             falses = torch.zeros(V_t_x0.shape[1] - singulars.shape[0], dtype=torch.bool, device=xt.device)
             cond_before_lite = singulars * sigma_next > sigma_0
@@ -97,10 +113,23 @@ def efficient_generalized_steps(x, seq, model, b, H_funcs, y_0, sigma_0, etaB, e
 
             #aggregate all 3 cases and give next prediction
             xt_mod_next = H_funcs.V(Vt_xt_mod_next)
+
+            
+            save_img(xt_mod_next, config, i, "xt_mod_next")
+
             xt_next = (at_next.sqrt()[0, 0, 0, 0] * xt_mod_next).view(*x.shape)
+
+            save_img(xt_next, config, i, "xt_next")
 
             x0_preds.append(x0_t.to('cpu'))
             xs.append(xt_next.to('cpu'))
 
 
     return xs, x0_preds
+
+
+def save_img(x, config, idx_so_far, name):
+    x = inverse_data_transform(config, x)
+    tvu.save_image(
+        x, os.path.join("image", f"{name}_{0}.png")
+    )
