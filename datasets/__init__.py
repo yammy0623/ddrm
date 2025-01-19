@@ -43,14 +43,13 @@ def center_crop_arr(pil_image, image_size = 256):
     crop_x = (arr.shape[1] - image_size) // 2
     return arr[crop_y : crop_y + image_size, crop_x : crop_x + image_size]
 
-
 def get_dataset(args, config):
     if config.data.random_flip is False:
-        tran_transform = test_transform = transforms.Compose(
+        train_transform = test_transform = transforms.Compose(
             [transforms.Resize(config.data.image_size), transforms.ToTensor()]
         )
     else:
-        tran_transform = transforms.Compose(
+        train_transform = transforms.Compose(
             [
                 transforms.Resize(config.data.image_size),
                 transforms.RandomHorizontalFlip(p=0.5),
@@ -135,15 +134,17 @@ def get_dataset(args, config):
     
     elif config.data.dataset == "CelebA_HQ" or config.data.dataset == 'FFHQ':
         if config.data.out_of_dist:
-            dataset = torchvision.datasets.ImageFolder(
-                os.path.join(args.exp, "datasets", "ood_celeba"),
+            dataset = torchvision.datasets.ImageFolder( 
+                # os.path.join(args.exp, "datasets", "ood_celeba"),
+                os.path.join(args.input_root, "ood_celeba"),
                 transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
                                               transforms.ToTensor()])
             )
             test_dataset = dataset
         else:
             dataset = torchvision.datasets.ImageFolder(
-                os.path.join(args.exp, "datasets", "celeba_hq"),
+                # os.path.join(args.exp, "datasets", "celeba_hq"),
+                os.path.join(args.input_root, "celeba_hq"),
                 transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
                                               transforms.ToTensor()])
             )
@@ -153,10 +154,15 @@ def get_dataset(args, config):
             np.random.seed(2019)
             np.random.shuffle(indices)
             np.random.set_state(random_state)
+            # train_indices, test_indices = (
+            #     indices[: int(num_items * 0.9)],
+            #     indices[int(num_items * 0.9) :],
+            # )
             train_indices, test_indices = (
-                indices[: int(num_items * 0.9)],
-                indices[int(num_items * 0.9) :],
+                indices[: -1000],
+                indices[-1000 :],
             )
+            train_dataset = Subset(dataset, train_indices)
             test_dataset = Subset(dataset, test_indices)
 
     elif config.data.dataset == 'ImageNet':
@@ -164,11 +170,23 @@ def get_dataset(args, config):
         
         if config.data.subset_1k:
             from datasets.imagenet_subset import ImageDataset
-            dataset = ImageDataset(os.path.join(args.exp, 'datasets', 'imagenet', 'imagenet'),
-                     os.path.join(args.exp, 'imagenet_val_1k.txt'),
+            dataset = None
+            train_dataset = ImageDataset(os.path.join(args.input_root, 'ImageNet', 'train'),
                      image_size=config.data.image_size,
                      normalize=False)
-            test_dataset = dataset
+            test_dataset = ImageDataset(os.path.join(args.input_root, 'ImageNet', 'val'),
+                     image_size=config.data.image_size,
+                     normalize=False)
+            # train_dataset = ImageDataset('/home/common/SharedDataset/ImageNet',
+            #           os.path.join(args.exp, 'train_list.txt'),
+            #          image_size=config.data.image_size,
+            #          normalize=False)
+            # test_dataset = ImageDataset(os.path.join(args.exp, 'datasets', 'imagenet', 'imagenet'),
+            #          os.path.join(args.exp, 'imagenet_val_1k.txt'),
+            #          image_size=config.data.image_size,
+            #          normalize=False)
+            # test_dataset = dataset
+
         elif config.data.out_of_dist:
             dataset = torchvision.datasets.ImageFolder(
                 os.path.join(args.exp, 'datasets', 'ood'),
@@ -184,9 +202,154 @@ def get_dataset(args, config):
             )
             test_dataset = dataset
     else:
-        dataset, test_dataset = None, None
+        dataset, train_dataset, test_dataset = None, None, None
 
     return dataset, test_dataset
+
+
+# def get_dataset(args, config):
+#     if config.data.random_flip is False:
+#         tran_transform = test_transform = transforms.Compose(
+#             [transforms.Resize(config.data.image_size), transforms.ToTensor()]
+#         )
+#     else:
+#         tran_transform = transforms.Compose(
+#             [
+#                 transforms.Resize(config.data.image_size),
+#                 transforms.RandomHorizontalFlip(p=0.5),
+#                 transforms.ToTensor(),
+#             ]
+#         )
+#         test_transform = transforms.Compose(
+#             [transforms.Resize(config.data.image_size), transforms.ToTensor()]
+#         )
+
+#     if config.data.dataset == "CELEBA":
+#         cx = 89
+#         cy = 121
+#         x1 = cy - 64
+#         x2 = cy + 64
+#         y1 = cx - 64
+#         y2 = cx + 64
+#         if config.data.random_flip:
+#             dataset = CelebA(
+#                 root=os.path.join(args.exp, "datasets", "celeba"),
+#                 split="train",
+#                 transform=transforms.Compose(
+#                     [
+#                         Crop(x1, x2, y1, y2),
+#                         transforms.Resize(config.data.image_size),
+#                         transforms.RandomHorizontalFlip(),
+#                         transforms.ToTensor(),
+#                     ]
+#                 ),
+#                 download=True,
+#             )
+#         else:
+#             dataset = CelebA(
+#                 root=os.path.join(args.exp, "datasets", "celeba"),
+#                 split="train",
+#                 transform=transforms.Compose(
+#                     [
+#                         Crop(x1, x2, y1, y2),
+#                         transforms.Resize(config.data.image_size),
+#                         transforms.ToTensor(),
+#                     ]
+#                 ),
+#                 download=True,
+#             )
+
+#         test_dataset = CelebA(
+#             root=os.path.join(args.exp, "datasets", "celeba"),
+#             split="test",
+#             transform=transforms.Compose(
+#                 [
+#                     Crop(x1, x2, y1, y2),
+#                     transforms.Resize(config.data.image_size),
+#                     transforms.ToTensor(),
+#                 ]
+#             ),
+#             download=True,
+#         )
+
+#     elif config.data.dataset == "LSUN":
+#         if config.data.out_of_dist:
+#             dataset = torchvision.datasets.ImageFolder(
+#                 os.path.join(args.exp, 'datasets', "ood_{}".format(config.data.category)),
+#                 transform=transforms.Compose([partial(center_crop_arr, image_size=config.data.image_size),
+#                 transforms.ToTensor()])
+#             )
+#             test_dataset = dataset
+#         else:
+#             train_folder = "{}_train".format(config.data.category)
+#             val_folder = "{}_val".format(config.data.category)
+#             test_dataset = LSUN(
+#                 root=os.path.join(args.exp, "datasets", "lsun"),
+#                 classes=[val_folder],
+#                 transform=transforms.Compose(
+#                     [
+#                         transforms.Resize(config.data.image_size),
+#                         transforms.CenterCrop(config.data.image_size),
+#                         transforms.ToTensor(),
+#                     ]
+#                 )
+#             )
+#             dataset = test_dataset
+    
+#     elif config.data.dataset == "CelebA_HQ" or config.data.dataset == 'FFHQ':
+#         if config.data.out_of_dist:
+#             dataset = torchvision.datasets.ImageFolder(
+#                 os.path.join(args.exp, "datasets", "ood_celeba"),
+#                 transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
+#                                               transforms.ToTensor()])
+#             )
+#             test_dataset = dataset
+#         else:
+#             dataset = torchvision.datasets.ImageFolder(
+#                 os.path.join(args.exp, "datasets", "celeba_hq"),
+#                 transform=transforms.Compose([transforms.Resize([config.data.image_size, config.data.image_size]),
+#                                               transforms.ToTensor()])
+#             )
+#             num_items = len(dataset)
+#             indices = list(range(num_items))
+#             random_state = np.random.get_state()
+#             np.random.seed(2019)
+#             np.random.shuffle(indices)
+#             np.random.set_state(random_state)
+#             train_indices, test_indices = (
+#                 indices[: int(num_items * 0.9)],
+#                 indices[int(num_items * 0.9) :],
+#             )
+#             test_dataset = Subset(dataset, test_indices)
+
+#     elif config.data.dataset == 'ImageNet':
+#         # only use validation dataset here
+        
+#         if config.data.subset_1k:
+#             from datasets.imagenet_subset import ImageDataset
+#             dataset = ImageDataset(os.path.join(args.exp, 'datasets', 'imagenet', 'imagenet'),
+#                      os.path.join(args.exp, 'imagenet_val_1k.txt'),
+#                      image_size=config.data.image_size,
+#                      normalize=False)
+#             test_dataset = dataset
+#         elif config.data.out_of_dist:
+#             dataset = torchvision.datasets.ImageFolder(
+#                 os.path.join(args.exp, 'datasets', 'ood'),
+#                 transform=transforms.Compose([partial(center_crop_arr, image_size=config.data.image_size),
+#                 transforms.ToTensor()])
+#             )
+#             test_dataset = dataset
+#         else:
+#             dataset = torchvision.datasets.ImageNet(
+#                 os.path.join(args.exp, 'datasets', 'imagenet'), split='val',
+#                 transform=transforms.Compose([partial(center_crop_arr, image_size=config.data.image_size),
+#                 transforms.ToTensor()])
+#             )
+#             test_dataset = dataset
+#     else:
+#         dataset, test_dataset = None, None
+
+#     return dataset, test_dataset
 
 
 def logit_transform(image, lam=1e-6):

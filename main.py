@@ -79,6 +79,8 @@ def parse_args_and_config():
         '--subset_end', type=int, default=-1
     )
 
+    parser.add_argument("--input_root", type=str, default="/tmp2/ICML2025", help="The root folder of input images")
+    
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, "logs", args.doc)
 
